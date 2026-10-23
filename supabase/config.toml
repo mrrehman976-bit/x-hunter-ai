@@ -1,0 +1,8 @@
+[functions.twitter-scrape]
+verify_jwt = true
+
+[functions.twitter-dm]
+verify_jwt = true
+
+[functions.twitter-inbox]
+verify_jwt = true
