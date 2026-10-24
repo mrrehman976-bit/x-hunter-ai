@@ -7,30 +7,35 @@ interface Lead {
   bio: string;
 }
 
-// ─── Strategy 1: REST adaptive search ────────────────────────────────────────
+interface SearchResult {
+  leads: Lead[];
+  status: number;
+  error?: string;
+  details?: string;
+}
+
+// ─── Strategy 1: REST adaptive search with search_mode=user ──────────────────
 
 async function searchAdaptive(
   authToken: string,
   ct0: string,
   keywords: string,
   limit: number,
-): Promise<{ leads: Lead[]; status: number; error?: string; details?: string }> {
+): Promise<SearchResult> {
   const params = new URLSearchParams({
     q: keywords,
-    count: String(Math.min(limit, 100)),
+    count: String(Math.min(limit, 20)),
+    search_mode: 'user',
     query_source: 'typed_query',
     pc: '1',
     spelling_correction: '0',
-    include_ext_is_blue_verified: '1',
-    include_ext_verified_type: '1',
-    include_ext_profile_image_shape: '1',
   });
 
   const url = `https://x.com/i/api/2/search/adaptive.json?${params.toString()}`;
 
   const response = await fetch(url, {
     method: 'GET',
-    headers: twitterHeaders(authToken, ct0, `https://x.com/search?q=${encodeURIComponent(keywords)}`),
+    headers: twitterHeaders(authToken, ct0, 'https://x.com/search'),
   });
 
   if (!response.ok) {
@@ -38,28 +43,17 @@ async function searchAdaptive(
     return { leads: [], status: response.status, error: statusErrorMsg('Twitter Search', response.status), details: rawText.slice(0, 500) };
   }
 
-  const { data, parseError } = await safeJson(response);
+  const { data, parseError, rawText } = await safeJson(response);
   if (!data) {
-    return { leads: [], status: 200, error: parseError || 'Failed to parse search response' };
+    return { leads: [], status: 200, error: parseError || 'Empty response body', details: rawText.slice(0, 500) };
   }
 
   const leads: Lead[] = [];
   const globalObjects = (data.global_objects as Record<string, unknown>) || {};
   const users = (globalObjects.users as Record<string, Record<string, unknown>>) || {};
-  const tweets = (globalObjects.tweets as Record<string, Record<string, unknown>>) || {};
 
-  const tweetUsers = new Set<string>();
-  for (const tweetId of Object.keys(tweets)) {
-    const tweet = tweets[tweetId];
-    const userId = (tweet?.user_id_str as string) || (tweet?.user_id as string);
-    if (userId) tweetUsers.add(String(userId));
-  }
-
-  const userIds = tweetUsers.size > 0 ? Array.from(tweetUsers) : Object.keys(users);
-
-  for (const userId of userIds) {
+  for (const userId of Object.keys(users)) {
     const user = users[userId];
-    if (!user) continue;
     const screenName = user.screen_name as string;
     if (!screenName) continue;
     leads.push({
@@ -74,113 +68,55 @@ async function searchAdaptive(
   return { leads, status: 200 };
 }
 
-// ─── Strategy 2: GraphQL SearchTimeline (fallback) ───────────────────────────
+// ─── Strategy 2: REST users/search.json (fallback) ───────────────────────────
 
-async function searchGraphQL(
+async function searchUsers(
   authToken: string,
   ct0: string,
   keywords: string,
   limit: number,
-): Promise<{ leads: Lead[]; status: number; error?: string; details?: string }> {
-  const queryIds = [
-    'Pt4P9xX3hUSxBGm0ZcXqYw',
-    'nK1dwXoVQk1xQ3AyEcKUWw',
-    'lZ0GCEoodCDTr5W3WNY4bg',
-  ];
-
-  const variables = JSON.stringify({
-    rawQuery: keywords,
-    count: Math.min(limit, 50),
-    querySource: 'typed_query',
-    product: 'Top',
+): Promise<SearchResult> {
+  const params = new URLSearchParams({
+    q: keywords,
+    count: String(Math.min(limit, 20)),
+    include_entities: 'true',
   });
 
-  const features = JSON.stringify({
-    rweb_tipsters_consumption_enabled: true,
-    responsive_web_graphql_exclude_directive_enabled: true,
-    verified_phone_label_enabled: false,
-    creator_subscriptions_tweet_preview_api_enabled: true,
-    responsive_web_graphql_timeline_navigation_enabled: true,
-    responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-    tweetypie_tweet_migration_enabled: true,
-    responsive_web_edit_tweet_api_enabled: true,
-    graphql_is_translatable_rweb_tweet_enabled: true,
-    view_counts_everywhere_api_enabled: true,
-    longform_notetweets_consumption_enabled: true,
-    tweet_awards_web_tipping_enabled: false,
-    freedom_of_speech_not_reach_fetch_enabled: true,
-    standardized_nudges_misinfo_enabled: false,
-    tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-    interactive_text_enabled: true,
-    responsive_web_text_conversations_enabled: false,
-    longform_notetweets_rich_text_read_enabled: true,
-    responsive_web_enhance_cards_enabled: false,
+  const url = `https://x.com/i/api/1.1/users/search.json?${params.toString()}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: twitterHeaders(authToken, ct0, 'https://x.com/search'),
   });
 
-  for (const queryId of queryIds) {
-    const url = `https://x.com/i/api/graphql/${queryId}/SearchTimeline?variables=${encodeURIComponent(variables)}&features=${encodeURIComponent(features)}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: twitterHeaders(authToken, ct0, `https://x.com/search?q=${encodeURIComponent(keywords)}`),
-    });
-
-    if (response.status === 404) continue;
-
-    if (!response.ok) {
-      const { rawText } = await safeJson(response);
-      return { leads: [], status: response.status, error: statusErrorMsg('Twitter GraphQL Search', response.status), details: rawText.slice(0, 500) };
-    }
-
-    const { data, parseError } = await safeJson(response);
-    if (!data) {
-      return { leads: [], status: 200, error: parseError || 'Failed to parse GraphQL search response' };
-    }
-
-    const leads: Lead[] = [];
-
-    try {
-      const dataRoot = (data.data as Record<string, unknown>) || {};
-      const searchByRawQuery = (dataRoot.search_by_raw_query as Record<string, unknown>) || {};
-      const searchTimeline = (searchByRawQuery.search_timeline as Record<string, unknown>) || {};
-      const timeline = (searchTimeline.timeline as Record<string, unknown>) || {};
-      const instructions = (timeline.instructions as Array<Record<string, unknown>>) || [];
-
-      const entries: Array<Record<string, unknown>> = [];
-      for (const instruction of instructions) {
-        const instType = instruction.type as string;
-        if (instType === 'TimelineAddEntries') {
-          const instEntries = instruction.entries as Array<Record<string, unknown>> | undefined;
-          if (Array.isArray(instEntries)) entries.push(...instEntries);
-        }
-      }
-
-      for (const entry of entries) {
-        const content = entry.content as Record<string, unknown> | undefined;
-        const itemContent = content?.itemContent as Record<string, unknown> | undefined;
-        const item = itemContent?.item as Record<string, unknown> | undefined;
-        const userResults = item?.user_results as Record<string, unknown> | undefined;
-        const result = userResults?.result as Record<string, unknown> | undefined;
-        const legacy = result?.legacy as Record<string, unknown> | undefined;
-
-        if (legacy?.screen_name) {
-          leads.push({
-            handle: `@${legacy.screen_name}`,
-            displayName: (legacy.name as string) || (legacy.screen_name as string),
-            followers: (legacy.followers_count as number) || 0,
-            bio: (legacy.description as string) || '',
-          });
-          if (leads.length >= limit) break;
-        }
-      }
-    } catch {
-      // parsing failed — return what we have
-    }
-
-    return { leads, status: 200 };
+  if (!response.ok) {
+    const { rawText } = await safeJson(response);
+    return { leads: [], status: response.status, error: statusErrorMsg('Twitter Users Search', response.status), details: rawText.slice(0, 500) };
   }
 
-  return { leads: [], status: 404, error: 'All GraphQL SearchTimeline query IDs returned 404.' };
+  const { data, parseError, rawText } = await safeJson(response);
+  if (!data) {
+    return { leads: [], status: 200, error: parseError || 'Empty response body', details: rawText.slice(0, 500) };
+  }
+
+  const leads: Lead[] = [];
+
+  // users/search.json returns an array of user objects
+  const usersArray = Array.isArray(data) ? data : (data.users as Array<Record<string, unknown>>) || [];
+
+  for (const user of usersArray) {
+    const screenName = user.screen_name as string;
+    if (!screenName) continue;
+    leads.push({
+      handle: `@${screenName}`,
+      displayName: (user.name as string) || screenName,
+      followers: (user.followers_count as number) || 0,
+      bio: (user.description as string) || '',
+    });
+    if (leads.length >= limit) break;
+  }
+
+  return { leads, status: 200 };
 }
 
 // ─── Main handler ────────────────────────────────────────────────────────────
@@ -210,14 +146,16 @@ Deno.serve(async (req: Request) => {
 
     const limit = Math.min(max_leads || 25, 50);
 
+    // Strategy 1: REST adaptive search with search_mode=user
     let result = await searchAdaptive(auth_token, ct0, keywords, limit);
 
-    if (result.leads.length === 0 && result.status !== 200) {
-      const gqlResult = await searchGraphQL(auth_token, ct0, keywords, limit);
-      if (gqlResult.leads.length > 0) {
-        result = gqlResult;
-      } else if (gqlResult.error && !result.error) {
-        result = gqlResult;
+    // Strategy 2: Fallback to users/search.json if adaptive returned no leads
+    if (result.leads.length === 0) {
+      const usersResult = await searchUsers(auth_token, ct0, keywords, limit);
+      if (usersResult.leads.length > 0) {
+        result = usersResult;
+      } else if (usersResult.error && !result.error) {
+        result = usersResult;
       }
     }
 
