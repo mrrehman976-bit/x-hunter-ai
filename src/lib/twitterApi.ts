@@ -13,6 +13,7 @@ export interface ScrapeResult {
   }>;
   count: number;
   error?: string;
+  simulated?: boolean;
   raw_response?: unknown;
 }
 

@@ -127,7 +127,7 @@ function Dashboard({ userId, userEmail, onSignOut }: DashboardProps) {
   }, [userId, credentials, saveLocalCredentials, pushLog]);
 
   // Live: add a scraped lead — insert to DB, add to local state, persist to localStorage
-  const handleAddLead = useCallback(async (lead: Lead) => {
+  const handleAddLead = useCallback(async (lead: Lead): Promise<void> => {
     const dbId = await insertLead(userId, lead);
     const leadWithId = dbId ? { ...lead, id: dbId } : lead;
     setLeads((prev) => {
