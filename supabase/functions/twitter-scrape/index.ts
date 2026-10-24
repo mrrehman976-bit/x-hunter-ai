@@ -14,7 +14,7 @@ interface SearchResult {
   details?: string;
 }
 
-// ─── Strategy 1: REST adaptive search with search_mode=user ──────────────────
+// REST-only: no GraphQL calls. Uses adaptive.json (primary) + users/search.json (fallback).
 
 async function searchAdaptive(
   authToken: string,

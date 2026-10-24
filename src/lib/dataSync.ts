@@ -89,28 +89,59 @@ async function loadDbCredentials(userId: string): Promise<XCredentials | null> {
   };
 }
 
+const settingsRow = (userId: string, creds: XCredentials) => ({
+  user_id: userId,
+  x_handle: creds.handle,
+  auth_method: creds.authMethod,
+  api_key: creds.apiKey,
+  api_secret: creds.apiSecret,
+  access_token: creds.accessToken,
+  access_token_secret: creds.accessTokenSecret,
+  cookie_token: creds.cookieToken,
+  ct0_token: creds.ct0Token,
+  ai_provider: creds.aiProvider,
+  ai_api_key: creds.aiApiKey,
+});
+
 export async function saveCredentials(userId: string, creds: XCredentials): Promise<void> {
   // 1. Save to localStorage immediately
   saveLocalSettings(userId, creds);
 
-  // 2. Save to cloud database — this is what makes data appear on other devices
-  const { error } = await supabase.from('user_settings').upsert({
-    user_id: userId,
-    x_handle: creds.handle,
-    auth_method: creds.authMethod,
-    api_key: creds.apiKey,
-    api_secret: creds.apiSecret,
-    access_token: creds.accessToken,
-    access_token_secret: creds.accessTokenSecret,
-    cookie_token: creds.cookieToken,
-    ct0_token: creds.ct0Token,
-    ai_provider: creds.aiProvider,
-    ai_api_key: creds.aiApiKey,
-  }, { onConflict: 'user_id' });
+  // 2. Save to cloud database via upsert
+  const { error } = await supabase
+    .from('user_settings')
+    .upsert(settingsRow(userId, creds), { onConflict: 'user_id' });
 
-  if (error) {
-    console.error('Error saving credentials to DB:', error.message);
-    throw new Error(error.message);
+  if (!error) return;
+
+  // 3. Fallback: select-then-update-or-insert if upsert fails
+  console.warn('Upsert failed, trying select+update/insert fallback:', error.message);
+
+  const { data: existing } = await supabase
+    .from('user_settings')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error: updateError } = await supabase
+      .from('user_settings')
+      .update(settingsRow(userId, creds))
+      .eq('id', existing.id);
+
+    if (updateError) {
+      console.error('Error updating credentials in DB:', updateError.message);
+      throw new Error(updateError.message);
+    }
+  } else {
+    const { error: insertError } = await supabase
+      .from('user_settings')
+      .insert(settingsRow(userId, creds));
+
+    if (insertError) {
+      console.error('Error inserting credentials to DB:', insertError.message);
+      throw new Error(insertError.message);
+    }
   }
 }
 
