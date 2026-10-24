@@ -22,16 +22,7 @@ async function searchAdaptive(
   keywords: string,
   limit: number,
 ): Promise<SearchResult> {
-  const params = new URLSearchParams({
-    q: keywords,
-    count: String(Math.min(limit, 20)),
-    search_mode: 'user',
-    query_source: 'typed_query',
-    pc: '1',
-    spelling_correction: '0',
-  });
-
-  const url = `https://x.com/i/api/2/search/adaptive.json?${params.toString()}`;
+  const url = `https://x.com/i/api/2/search/adaptive.json?q=${encodeURIComponent(keywords)}&count=20&search_mode=user`;
 
   const response = await fetch(url, {
     method: 'GET',

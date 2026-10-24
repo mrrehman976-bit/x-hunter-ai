@@ -187,7 +187,7 @@ export default function HuntingPanel({
       {
         delay: 100,
         level: 'INFO',
-        message: `[SCRAPE] Sending GET request to x.com/i/api/graphql/SearchTimeline…`,
+        message: `[SCRAPE] Sending GET request to REST API search/adaptive.json…`,
         callback: async () => {
           onPushLog('INFO', '[SCRAPE] Awaiting Twitter API response…');
           const result = await scrapeTwitterLeads(authToken, ct0, kw, count);
@@ -589,7 +589,7 @@ export default function HuntingPanel({
                 <div>
                   <p className="text-sm font-medium text-slate-200">Scan Live Inbox for Replies</p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Fetches real DM replies from your Twitter inbox via x.com GraphQL API. Marks leads as "replied" and uses AI to classify intent (Interested, Query, Pricing, Objection).
+                    Fetches real DM replies from your X inbox. Marks leads as "replied" and uses AI to classify intent (Interested, Query, Pricing, Objection).
                   </p>
                 </div>
               </div>
